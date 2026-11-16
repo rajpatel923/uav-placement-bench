@@ -1,0 +1,35 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8787"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash($SKILL_SCRIPTS/task-brief $PLAN *)",
+      "Bash(pytest *)",
+      "Bash(chmod +x /Users/rajpatel/Downloads/uav-placement-bench/scripts/verify_channel.py)",
+      "Bash(python /Users/rajpatel/Downloads/uav-placement-bench/scripts/verify_channel.py --pl-max 100 --out /Users/rajpatel/Downloads/uav-placement-bench/docs/channel_verification.png)",
+      "Bash(python /Users/rajpatel/Downloads/uav-placement-bench/scripts/verify_channel.py)",
+      "Bash($SKILL_SCRIPTS/review-package 6f0f8f7fc09ac91f080bed507ff49c21abb2737b *)",
+      "Bash(/Users/rajpatel/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief /Users/rajpatel/Downloads/uav-placement-bench/docs/superpowers/plans/2026-11-16-uav-benchmark-full-plan.md 2)",
+      "Bash(python *)",
+      "Bash($SKILL_SCRIPTS/review-package 3d4c1009a1f614d2ac334a1264060b01af7f4376 *)",
+      "Bash(/Users/rajpatel/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief /Users/rajpatel/Downloads/uav-placement-bench/docs/superpowers/plans/2026-11-16-uav-benchmark-full-plan.md 4)",
+      "Bash($SKILL_SCRIPTS/review-package 1626ec071a1fd046fa2055e74df3f032d754781e *)",
+      "Bash(/Users/rajpatel/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief /Users/rajpatel/Downloads/uav-placement-bench/docs/superpowers/plans/2026-11-16-uav-benchmark-full-plan.md 5)",
+      "mcp__headroom__headroom_retrieve",
+      "Bash($SKILL_SCRIPTS/review-package df96c1e0781bc8fea9078cbbfbb0f0ac0e491761 *)",
+      "Bash(/Users/rajpatel/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief /Users/rajpatel/Downloads/uav-placement-bench/docs/superpowers/plans/2026-11-16-uav-benchmark-full-plan.md 6)",
+      "Read(//private/tmp/tune_smoke/**)",
+      "Bash($SKILL_SCRIPTS/review-package 2d914a76443df02b850dec99d40f638c90c46e8d *)",
+      "Bash(/Users/rajpatel/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief /Users/rajpatel/Downloads/uav-placement-bench/docs/superpowers/plans/2026-11-16-uav-benchmark-full-plan.md 7)",
+      "Bash(python3 *)",
+      "Bash($SKILL_SCRIPTS/review-package c5ea95f125e294052725239313dd221a6f4df44c *)",
+      "Bash(bash -n scripts/run_all.sh)",
+      "Bash(bash *)",
+      "Bash(git *)"
+    ]
+  }
+}
