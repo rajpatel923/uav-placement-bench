@@ -36,7 +36,29 @@ pytest -q                                              # expect 21 passed
 
 Python 3.10+ recommended. A GPU is NOT needed: networks are tiny MLPs, CPU is faster here.
 
-## Quickstart
+## Quickstart — launcher (recommended)
+
+`run.sh` at the repo root handles everything. It auto-detects CUDA and splits
+seeds across multiple GPUs when available.
+
+```bash
+bash run.sh smoke          # sanity check before anything (~2 min)
+bash run.sh tune           # tune hyperparams on val split first
+bash run.sh sweep          # full 10-seed reported run (hours)
+bash run.sh figures        # regenerate figures after a sweep
+bash run.sh help           # show all options
+```
+
+Machine-specific launchers (single-GPU machines):
+
+```bash
+bash run_5090.sh smoke     # Ryzen 9 9950X + RTX 5090 — same modes
+bash run_5090.sh sweep
+```
+
+**Always run `tune` before `sweep`.** The order is: `smoke` → `tune` → `sweep`.
+
+### Manual commands (advanced)
 
 ```bash
 # classical baselines on the shared evaluation layouts
