@@ -56,3 +56,9 @@ def test_step_returns_dict_for_spatial_grid():
 def test_max_fleet_size_less_than_n_uavs_raises():
     with pytest.raises(ValueError, match="max_fleet_size"):
         make_env("static", obs_mode="graph", n_uavs=9, max_fleet_size=8)
+
+
+def test_graph_n_users_exceeds_max_raises():
+    with pytest.raises(ValueError, match="MAX_OBS_USERS"):
+        env = make_env("static", obs_mode="graph", n_users=200)
+        env.reset(seed=0)

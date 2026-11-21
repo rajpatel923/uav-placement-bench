@@ -70,6 +70,11 @@ def build_graph(
 
     n_uavs = uavs.shape[0]
     n_users = users.shape[0]
+    if n_users > MAX_OBS_USERS:
+        raise ValueError(
+            f"n_users ({n_users}) exceeds MAX_OBS_USERS ({MAX_OBS_USERS}). "
+            f"Set MAX_OBS_USERS higher or reduce n_users."
+        )
 
     # node features: [x/area, y/area, z/h_max, is_uav]
     node_feats = np.zeros((max_nodes, 4), dtype=np.float32)
