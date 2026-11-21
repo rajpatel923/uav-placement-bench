@@ -44,7 +44,11 @@ class EnvConfig:
     # reward shaping
     min_sep: float = 20.0          # UAV-UAV safety distance (m)
     collision_penalty: float = 0.1
-    obs_mode: str = "flat"  # "flat" | "sorted" | "cluster_summary"
+    obs_mode: str = "flat"  # "flat" | "sorted" | "cluster_summary" | "spatial_grid" | "graph"
+    # Graph / GNN obs support
+    graph_edge_radius: float = 1500.0  # UAV↔user edge threshold (m)
+    max_fleet_size:    int   = 8       # padding target; must be >= n_uavs
+    step_duration_s:   float = 1.0     # seconds per env step (user_speed is in m/s)
     # SINR / interference (disabled by default; enabling changes the objective)
     use_sinr: bool = False       # if True, adds sinr_cov to info dict
     tx_power_dbm: float = 30.0  # UAV transmit power (dBm)
@@ -78,16 +82,12 @@ class UAVPlacementEnv(gym.Env):
         self.channel = AlHouraniChannel(cfg.environment, cfg.freq_hz)
         U, K = cfg.n_uavs, cfg.n_users
         self.action_space = spaces.Box(-1.0, 1.0, shape=(U * 3,), dtype=np.float32)
-        # Observation space depends on obs_mode
-        if cfg.obs_mode == "flat":
-            obs_dim = U * 3 + K * 2
-        elif cfg.obs_mode == "sorted":
-            obs_dim = U * 3 + K * 2
-        elif cfg.obs_mode == "cluster_summary":
-            obs_dim = U * 3 + cfg.n_clusters * 3
-        else:
-            raise ValueError(f"Unknown obs_mode: {cfg.obs_mode!r}. Choose 'flat', 'sorted', or 'cluster_summary'.")
-        self.observation_space = spaces.Box(0.0, 1.0, shape=(obs_dim,), dtype=np.float32)
+        from .obs import make_obs_space
+        if cfg.max_fleet_size < cfg.n_uavs:
+            raise ValueError(
+                f"max_fleet_size ({cfg.max_fleet_size}) must be >= n_uavs ({cfg.n_uavs})"
+            )
+        self.observation_space = make_obs_space(cfg)
         self._step_scale = np.array([cfg.v_max, cfg.v_max, cfg.vz_max], dtype=float)
         self.uavs = np.zeros((U, 3))
         self.users = np.zeros((K, 2))
@@ -108,33 +108,24 @@ class UAVPlacementEnv(gym.Env):
         uniform = rng.uniform(0.0, c.area, size=(n_uniform, 2))
         return np.clip(np.vstack([clustered, uniform]), 0.0, c.area)
 
-    def _obs(self) -> np.ndarray:
+    def _obs(self):
+        from .obs import (build_flat, build_sorted, build_cluster_summary,
+                          build_spatial_grid, build_graph)
         c = self.cfg
         u = self.uavs.copy()
         u[:, :2] /= c.area
-        u[:, 2] = (u[:, 2] - c.h_min) / (c.h_max - c.h_min)
-        uav_part = u.ravel()
-
+        u[:, 2] = (u[:, 2] - c.h_min) / max(c.h_max - c.h_min, 1e-6)
         if c.obs_mode == "flat":
-            user_part = (self.users / c.area).ravel()
-        elif c.obs_mode == "sorted":
-            centroid = np.full(2, c.area / 2.0)
-            order = np.argsort(np.linalg.norm(self.users - centroid, axis=1))
-            user_part = (self.users[order] / c.area).ravel()
-        elif c.obs_mode == "cluster_summary":
-            from sklearn.cluster import KMeans
-            km = KMeans(n_clusters=c.n_clusters, n_init=1, random_state=0)
-            labels = km.fit_predict(self.users)
-            counts = np.bincount(labels, minlength=c.n_clusters)
-            summary = np.column_stack([
-                km.cluster_centers_ / c.area,
-                counts.astype(float) / c.n_users,
-            ])  # shape: (n_clusters, 3)
-            user_part = summary.ravel()
-        else:
-            raise ValueError(f"Unknown obs_mode: {c.obs_mode!r}")
-
-        return np.concatenate([uav_part, user_part]).astype(np.float32)
+            return build_flat(u, self.users, c)
+        if c.obs_mode == "sorted":
+            return build_sorted(u, self.users, c)
+        if c.obs_mode == "cluster_summary":
+            return build_cluster_summary(u, self.users, c)
+        if c.obs_mode == "spatial_grid":
+            return build_spatial_grid(self.uavs, self.users, c)
+        if c.obs_mode == "graph":
+            return build_graph(self.uavs, self.users, c, self._failed_mask)
+        raise ValueError(f"Unknown obs_mode: {c.obs_mode!r}")
 
     def coverage(self, uavs: np.ndarray | None = None, users: np.ndarray | None = None) -> float:
         """Fraction of users whose best-UAV path loss is <= pl_max."""
@@ -164,10 +155,11 @@ class UAVPlacementEnv(gym.Env):
 
     def _move_users(self):
         c, rng = self.cfg, self.np_random
+        step_m = c.user_speed * c.step_duration_s      # m/s × s = m/step
         delta = self.waypoints - self.users
         dist = np.linalg.norm(delta, axis=1, keepdims=True)
-        arrived = dist[:, 0] <= c.user_speed
-        step = np.where(dist > 0, delta / np.maximum(dist, 1e-9), 0.0) * np.minimum(dist, c.user_speed)
+        arrived = dist[:, 0] <= step_m
+        step = np.where(dist > 0, delta / np.maximum(dist, 1e-9), 0.0) * np.minimum(dist, step_m)
         self.users = self.users + step
         if arrived.any():
             self.waypoints[arrived] = rng.uniform(0.0, c.area, size=(int(arrived.sum()), 2))
