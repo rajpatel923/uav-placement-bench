@@ -1,5 +1,4 @@
 """Tests for CNN feature extractor (Task 2) and GNN feature extractor (Task 3)."""
-import numpy as np
 import pytest
 import torch
 from uavbench.env import make_env

@@ -61,7 +61,7 @@ class EnvConfig:
     shock_migration_frac: float = 0.5  # fraction of users that relocate (user_migration type)
     # RQ2 failure model
     single_failure: bool  = False  # one random-step failure per episode
-    failure_rate:   float = 0.0    # retained for future experiments; unused in RQ2 sweep
+    failure_rate:   float = 0.0    # Bernoulli per-step UAV failure rate; enabled but not used in default RQ2 sweep configs
 
     def to_dict(self):
         return asdict(self)

@@ -9,9 +9,7 @@ Usage (full, run after RQ1 to pick best obs_mode):
 Methods run per config: pso, warm_start_pso, mpc, rl (trained on that config).
 """
 import argparse
-import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

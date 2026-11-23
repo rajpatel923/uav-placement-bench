@@ -10,6 +10,8 @@ h = R_c * tan(theta_opt), where theta_opt solves Eq. (13). We clip to [h_min, h_
 """
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from sklearn.cluster import KMeans
@@ -192,13 +194,19 @@ class TargetTrackingPolicy:
         self.replan_every = replan_every
         self.targets = None
         self._t = 0
+        self._last_plan: np.ndarray | None = None
+        self._has_prev_solution = "prev_solution" in inspect.signature(self.planner).parameters
 
     def reset(self, env: UAVPlacementEnv):
         self._t = 0
         self._plan(env)
 
     def _plan(self, env: UAVPlacementEnv):
-        targets = self.planner(env, self.rng)
+        if self._has_prev_solution:
+            targets = self.planner(env, self.rng, prev_solution=self._last_plan)
+        else:
+            targets = self.planner(env, self.rng)
+        self._last_plan = targets
         cost = np.linalg.norm(env.uavs[:, None, :] - targets[None, :, :], axis=-1)
         rows, cols = linear_sum_assignment(cost)
         self.targets = targets[cols[np.argsort(rows)]]

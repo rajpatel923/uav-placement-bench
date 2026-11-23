@@ -155,7 +155,7 @@ def main():
                    choices=["flat", "sorted", "cluster_summary", "spatial_grid", "graph"])
     p.add_argument("--seeds", nargs="+", type=int, default=[0, 1])
     p.add_argument("--n-eval", type=int, default=20)
-    p.add_argument("--split", choices=["test", "val"], default="test")
+    p.add_argument("--split", choices=["test", "val"], default="val")
     p.add_argument("--out", default="results_rq3")
     p.add_argument("--rq3b", action="store_true", help="also run RQ3-B fleet-size evaluation")
     args = p.parse_args()
