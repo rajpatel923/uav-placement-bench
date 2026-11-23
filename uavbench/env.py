@@ -59,6 +59,9 @@ class EnvConfig:
     shock_type: str = "uav_failure"    # "uav_failure" | "user_migration"
     shock_n_uavs_fail: int = 1         # number of UAVs that fail (uav_failure type)
     shock_migration_frac: float = 0.5  # fraction of users that relocate (user_migration type)
+    # RQ2 failure model
+    single_failure: bool  = False  # one random-step failure per episode
+    failure_rate:   float = 0.0    # retained for future experiments; unused in RQ2 sweep
 
     def to_dict(self):
         return asdict(self)
@@ -95,6 +98,8 @@ class UAVPlacementEnv(gym.Env):
         self.t = 0
         self._failed_mask = np.ones(cfg.n_uavs, dtype=bool)
         self.n_active_uavs: int = cfg.n_uavs
+        self._failure_step: int = -1
+        self._single_failure_done: bool = False
 
     # ---------------------------------------------------------------- helpers
     def _sample_users(self) -> np.ndarray:
@@ -195,6 +200,17 @@ class UAVPlacementEnv(gym.Env):
         self.t = 0
         self._failed_mask = np.ones(c.n_uavs, dtype=bool)
         self.n_active_uavs = c.n_uavs
+        self._single_failure_done = False
+        if c.single_failure:
+            lo = c.episode_len // 3
+            hi = 2 * c.episode_len // 3
+            # _failure_step is compared against self.t (1-indexed after step increment).
+            # The test measures 0-indexed loop variable t, which equals self.t - 1 at
+            # the moment of detection, so draw from [lo+1, hi+1] to place the visible
+            # failure at t in [lo, hi].
+            self._failure_step = int(self.np_random.integers(lo + 1, hi + 2))
+        else:
+            self._failure_step = -1
         cov = self.coverage()
         info = {"coverage": cov}
         if c.use_sinr:
@@ -208,13 +224,21 @@ class UAVPlacementEnv(gym.Env):
         self.uavs[:, :2] = np.clip(self.uavs[:, :2], 0.0, c.area)
         self.uavs[:, 2] = np.clip(self.uavs[:, 2], c.h_min, c.h_max)
         self.t += 1
+        # single_failure: one UAV fails at a randomly drawn step each episode
+        if c.single_failure and not self._single_failure_done and self.t == self._failure_step:
+            active = np.where(self._failed_mask)[0]
+            if len(active) > 0:
+                self._failed_mask[self.np_random.choice(active)] = False
+                self.n_active_uavs -= 1
+            self._single_failure_done = True
         shock_active = False
         if c.mobility == "shock" and self.t == c.shock_step:
             self._apply_shock()
             shock_active = True
         if c.mobility in ("mobile", "shock"):
             self._move_users()
-        active_uavs = self.uavs[self._failed_mask] if c.mobility == "shock" else self.uavs
+        any_fail = (c.mobility == "shock") or (c.single_failure and self._single_failure_done)
+        active_uavs = self.uavs[self._failed_mask] if any_fail else self.uavs
         cov = self.coverage(active_uavs)
         # Proximity penalty uses all UAVs (including failed ones) — failed UAVs are
         # still physically present. For shock experiments, this biases the reward slightly.
