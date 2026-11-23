@@ -42,3 +42,43 @@ def test_lyu_spiral_beats_random_on_average():
     assert np.mean(spiral_covs) > np.mean(random_covs), (
         f"Spiral {np.mean(spiral_covs):.3f} should beat random {np.mean(random_covs):.3f}"
     )
+
+
+def test_warm_start_pso_registered():
+    from uavbench.baselines import PLANNERS
+    assert "warm_start_pso" in PLANNERS
+
+
+def test_warm_start_pso_no_prior_matches_cold():
+    """With same seed and no prior, warm_start_pso must equal pso_planner."""
+    from uavbench.baselines import pso_planner, warm_start_pso_planner
+    env = _env(seed=5)
+    result_a = pso_planner(env, np.random.default_rng(99), n_particles=10, iters=5)
+    env2 = _env(seed=5)
+    result_b = warm_start_pso_planner(env2, np.random.default_rng(99),
+                                       prev_solution=None, n_particles=10, iters=5)
+    np.testing.assert_array_almost_equal(result_a, result_b)
+
+
+def test_warm_start_pso_prior_shape():
+    from uavbench.baselines import pso_planner, warm_start_pso_planner
+    env = _env()
+    prior = pso_planner(env, np.random.default_rng(42), iters=10)
+    env2 = _env()
+    result = warm_start_pso_planner(env2, np.random.default_rng(1),
+                                     prev_solution=prior, iters=10)
+    assert result.shape == (env.cfg.n_uavs, 3)
+
+
+def test_mpc_registered():
+    from uavbench.baselines import PLANNERS
+    assert "mpc" in PLANNERS
+
+
+def test_mpc_planner_shape_and_bounds():
+    from uavbench.baselines import mpc_planner
+    env = _env()
+    targets = mpc_planner(env, np.random.default_rng(0), horizon=3, budget_ms=200.0)
+    assert targets.shape == (env.cfg.n_uavs, 3)
+    assert np.all(targets[:, :2] >= 0) and np.all(targets[:, :2] <= env.cfg.area)
+    assert np.all(targets[:, 2] >= env.cfg.h_min) and np.all(targets[:, 2] <= env.cfg.h_max)
