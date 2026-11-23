@@ -112,6 +112,7 @@ def main():
     model.save(model_dir / f"seed{args.seed}")
 
     timing_path = Path(out) / args.regime / args.algo / f"timing_seed{args.seed}.json"
+    timing_path.parent.mkdir(parents=True, exist_ok=True)
     timing_path.write_text(json.dumps({
         "algo": args.algo, "regime": args.regime, "seed": args.seed,
         "obs_mode": args.obs_mode, "train_time_s": train_time,
