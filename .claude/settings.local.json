@@ -1,7 +1,4 @@
 {
-  "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8787"
-  },
   "permissions": {
     "allow": [
       "Bash(git checkout *)",
@@ -29,7 +26,16 @@
       "Bash($SKILL_SCRIPTS/review-package c5ea95f125e294052725239313dd221a6f4df44c *)",
       "Bash(bash -n scripts/run_all.sh)",
       "Bash(bash *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(xargs -I{} bash -c 'git -C \"$\\(dirname {}\\)\" log --all --oneline 2>/dev/null | grep -q \"3d4c100\\\\|1626ec0\\\\|6f0f8f7\" && echo \"$\\(dirname {}\\)\"')",
+      "Bash(xargs -I{} bash -c 'git -C \"$\\(dirname {}\\)\" log --all --oneline 2>/dev/null | grep -q \"3d4c100\\\\|1626ec0\\\\|86ddd25\" && echo \"FOUND: $\\(dirname {}\\)\"')",
+      "Bash(xxd /Users/rajpatel/Downloads/uav-placement-bench/scripts/run_all.sh)",
+      "Bash(chmod +x /Users/rajpatel/Downloads/uav-placement-bench/run.sh)",
+      "Bash(chmod +x /Users/rajpatel/Downloads/uav-placement-bench/run_5090.sh)",
+      "Bash(pip show *)",
+      "Bash(pip3 list *)",
+      "Bash(conda env *)",
+      "Bash(conda run *)"
     ]
   }
 }
