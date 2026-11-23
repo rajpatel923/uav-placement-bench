@@ -1,7 +1,7 @@
 # tests/test_rq2.py
 import numpy as np
 import pytest
-from uavbench.env import EnvConfig, UAVPlacementEnv
+from uavbench.env import EnvConfig, UAVPlacementEnv, make_env
 
 
 def test_new_fields_exist_with_defaults():
@@ -65,3 +65,41 @@ def test_failure_rate_zero_no_change():
     for _ in range(env.cfg.episode_len):
         _, _, _, _, info = env.step(env.action_space.sample())
         assert info["n_active_uavs"] == n
+
+
+def test_failure_rate_nonzero():
+    env = make_env("static", failure_rate=1.0)
+    env.reset(seed=0)
+    for _ in range(5):
+        env.step(env.action_space.sample())
+    # With failure_rate=1.0, at least one UAV should have failed
+    assert not env.unwrapped._failed_mask.all(), "failure_rate=1.0 should fail at least one UAV"
+
+
+def test_failure_affects_coverage():
+    # Run with no failure
+    env_ok = make_env("static")
+    obs_ok, _ = env_ok.reset(seed=42)
+    rew_ok = 0.0
+    for _ in range(env_ok.unwrapped.cfg.episode_len):
+        _, r, term, trunc, _ = env_ok.step(env_ok.action_space.sample())
+        rew_ok += r
+        if term or trunc:
+            break
+
+    # Run with single_failure — seed so failure fires early
+    env_fail = make_env("static", single_failure=True)
+    obs_fail, _ = env_fail.reset(seed=42)
+    # Force early failure by setting _failure_step to step 2
+    env_fail.unwrapped._failure_step = 2
+    rew_fail = 0.0
+    for _ in range(env_fail.unwrapped.cfg.episode_len):
+        _, r, term, trunc, _ = env_fail.step(env_fail.action_space.sample())
+        rew_fail += r
+        if term or trunc:
+            break
+
+    # Coverage with failure should be <= coverage without failure
+    assert rew_fail <= rew_ok + 1e-6, (
+        f"Failure should not improve coverage: fail={rew_fail:.3f}, ok={rew_ok:.3f}"
+    )

@@ -231,13 +231,19 @@ class UAVPlacementEnv(gym.Env):
                 self._failed_mask[self.np_random.choice(active)] = False
                 self.n_active_uavs -= 1
             self._single_failure_done = True
+        # failure_rate: Bernoulli per-step failure (up to n_uavs failures total)
+        if c.failure_rate > 0.0:
+            active = np.where(self._failed_mask)[0]
+            if len(active) > 0 and self.np_random.random() < c.failure_rate:
+                self._failed_mask[self.np_random.choice(active)] = False
+                self.n_active_uavs -= 1
         shock_active = False
         if c.mobility == "shock" and self.t == c.shock_step:
             self._apply_shock()
             shock_active = True
         if c.mobility in ("mobile", "shock"):
             self._move_users()
-        any_fail = (c.mobility == "shock") or (c.single_failure and self._single_failure_done)
+        any_fail = (c.mobility == "shock") or (c.single_failure and self._single_failure_done) or (c.failure_rate > 0.0 and self.n_active_uavs < c.n_uavs)
         active_uavs = self.uavs[self._failed_mask] if any_fail else self.uavs
         cov = self.coverage(active_uavs)
         # Proximity penalty uses all UAVs (including failed ones) — failed UAVs are
