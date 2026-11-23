@@ -1,10 +1,14 @@
 """GATv2-based feature extractor for graph obs_mode.
 
 Architecture:
-  GATv2Conv(4 → 64, heads=4, concat=True)   → (n_actual_nodes, 256)
-  GATv2Conv(256 → 64, heads=1, concat=False) → (n_actual_nodes, 64)
+  GATv2Conv(4 → 64, heads=4, concat=True)   → (n_span, 256)
+  GATv2Conv(256 → 64, heads=1, concat=False) → (n_span, 64)
   Extract UAV nodes; apply uav_active mask → zero out failed/padding slots
   Flatten: (max_fleet * 64,) per sample
+
+Default features_dim is max_fleet * 64 (derived dynamically from observation_space).
+When a different features_dim is requested, a linear projection layer is added after
+the flatten step.
 
 Each sample processed separately (PyG variable-size graphs vs SB3 fixed batches).
 Acceptable overhead for research use at batch_size ≤ 256.
@@ -15,6 +19,7 @@ from __future__ import annotations
 
 import gymnasium as gym
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch_geometric.nn import GATv2Conv
@@ -24,15 +29,17 @@ class GNNExtractor(BaseFeaturesExtractor):
     UAV_EMB_DIM = 64
 
     def __init__(self, observation_space: gym.spaces.Dict, features_dim: int | None = None):
-        self.max_fleet = observation_space["uav_active"].shape[0]
-        inferred = self.max_fleet * self.UAV_EMB_DIM
+        max_fleet = int(observation_space["uav_active"].shape[0])
+        raw_dim = max_fleet * self.UAV_EMB_DIM
         if features_dim is None:
-            features_dim = inferred
-        if features_dim != inferred:
-            raise ValueError(f"features_dim must equal max_fleet*64={inferred}, got {features_dim}")
+            features_dim = raw_dim
         super().__init__(observation_space, features_dim)
+        self.max_fleet = max_fleet
         self.conv1 = GATv2Conv(in_channels=4,   out_channels=64, heads=4, concat=True)   # → 256
         self.conv2 = GATv2Conv(in_channels=256, out_channels=64, heads=1, concat=False)  # → 64
+        self.use_proj = features_dim != raw_dim
+        if self.use_proj:
+            self.proj = nn.Linear(raw_dim, features_dim)
 
     def forward(self, observations: dict) -> torch.Tensor:
         batch_size = observations["node_feats"].shape[0]
@@ -63,4 +70,7 @@ class GNNExtractor(BaseFeaturesExtractor):
             uav_active = observations["uav_active"][b].float()
             uav_emb = uav_emb * uav_active.unsqueeze(-1)
             results.append(uav_emb.flatten())
-        return torch.stack(results, dim=0)   # (batch, max_fleet*64)
+        out = torch.stack(results, dim=0)   # (batch, max_fleet*64)
+        if self.use_proj:
+            out = self.proj(out)
+        return out

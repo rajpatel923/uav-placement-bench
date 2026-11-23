@@ -45,12 +45,15 @@ def test_cnn_policy_integration():
 
 # ── GNN feature extractor tests (Task 3) ─────────────────────────────────────
 
+torch_geometric = pytest.importorskip("torch_geometric", reason="torch_geometric not installed")
+from uavbench.policies.gnn_policy import GNNExtractor  # noqa: E402
+
+
 def _gnn_env(n_uavs=4):
     return make_env("static", obs_mode="graph", n_uavs=n_uavs)
 
 
 def test_gnn_extractor_4uav_shape():
-    from uavbench.policies.gnn_policy import GNNExtractor
     env = _gnn_env(n_uavs=4)
     extractor = GNNExtractor(env.observation_space)
     obs, _ = env.reset(seed=0)
@@ -62,7 +65,6 @@ def test_gnn_extractor_4uav_shape():
 
 def test_gnn_extractor_6uav_same_shape():
     """6-UAV obs through an extractor built on 4-UAV space → same output shape."""
-    from uavbench.policies.gnn_policy import GNNExtractor
     env4 = _gnn_env(n_uavs=4)
     env6 = _gnn_env(n_uavs=6)
     extractor = GNNExtractor(env4.observation_space)
@@ -74,7 +76,6 @@ def test_gnn_extractor_6uav_same_shape():
 
 
 def test_gnn_extractor_no_nan():
-    from uavbench.policies.gnn_policy import GNNExtractor
     env = _gnn_env()
     extractor = GNNExtractor(env.observation_space)
     obs, _ = env.reset(seed=0)
@@ -84,7 +85,6 @@ def test_gnn_extractor_no_nan():
 
 def test_gnn_inactive_uavs_zeroed():
     """Slots with uav_active=0 must produce zero embedding."""
-    from uavbench.policies.gnn_policy import GNNExtractor
     env = _gnn_env(n_uavs=4)
     obs, _ = env.reset(seed=0)
     obs_copy = {k: v.copy() for k, v in obs.items()}
@@ -101,7 +101,6 @@ def test_gnn_inactive_uavs_zeroed():
 
 def test_gnn_policy_integration():
     from stable_baselines3 import PPO
-    from uavbench.policies.gnn_policy import GNNExtractor
     env = _gnn_env(n_uavs=4)
     max_fleet = env.unwrapped.cfg.max_fleet_size
     model = PPO(
@@ -112,3 +111,13 @@ def test_gnn_policy_integration():
     obs, _ = env.reset(seed=0)
     action, _ = model.predict(obs, deterministic=True)
     assert action.shape == env.action_space.shape
+
+
+def test_gnn_extractor_custom_features_dim():
+    """features_dim != max_fleet*64 triggers projection; output shape must match."""
+    env = _gnn_env(n_uavs=4)
+    extractor = GNNExtractor(env.observation_space, features_dim=64)
+    obs, _ = env.reset(seed=0)
+    batch = {k: torch.tensor(v).unsqueeze(0) for k, v in obs.items()}
+    out = extractor(batch)
+    assert out.shape == (1, 64), f"Expected (1, 64) with projection, got {out.shape}"
