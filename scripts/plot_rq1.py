@@ -11,10 +11,12 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[0]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import matplotlib.pyplot as plt
+from stats import paired_diff_ci
 
 
 OBS_MODES = ["flat", "sorted", "cluster_summary", "spatial_grid", "graph"]
@@ -25,6 +27,8 @@ def _load_per_layout(results_dir: Path, regime: str, obs_mode: str,
     """Load per-layout final_cov across all seeds for one obs_mode."""
     folder = results_dir / regime
     scores, times = [], []
+    if not folder.exists():
+        return np.array([]), []
     for algo_dir in sorted(folder.iterdir()):
         for f in sorted(algo_dir.glob("seed*.json")):
             d = json.loads(f.read_text())
@@ -77,9 +81,10 @@ def main():
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     colors = plt.cm.tab10(np.linspace(0, 1, len(OBS_MODES)))
 
-    iqm_vals, ci_los, ci_his, mean_times = [], [], [], []
+    iqm_vals, ci_los, ci_his, mean_times, arrays = [], [], [], [], []
     for obs_mode in OBS_MODES:
         arr, times = _load_per_layout(results, args.regime, obs_mode, args.metric)
+        arrays.append(arr)
         if arr.size == 0:
             iqm_vals.append(float("nan")); ci_los.append(0); ci_his.append(0)
             mean_times.append(float("nan"))
@@ -97,6 +102,20 @@ def main():
     ax1.set_ylabel(f"{args.metric} IQM"); ax1.set_ylim(0, 1)
     ax1.set_title(f"(a) RQ1: Representation comparison — {args.regime}")
     ax1.axhline(y=0, color="k", linewidth=0.5)
+
+    # Annotate significance vs. flat baseline using paired_diff_ci
+    baseline_arr = arrays[OBS_MODES.index("flat")]
+    if baseline_arr.size >= 2:
+        for i, (obs_mode, arr) in enumerate(zip(OBS_MODES, arrays)):
+            if obs_mode == "flat" or arr.size < 2:
+                continue
+            n = min(arr.shape[0], baseline_arr.shape[0])
+            pt, lo, hi = paired_diff_ci(
+                arr[:n].mean(axis=1), baseline_arr[:n].mean(axis=1)
+            )
+            if lo > 0 or hi < 0:  # CI excludes 0 → significant
+                y = (iqm_vals[i] if not np.isnan(iqm_vals[i]) else 0) + ci_his[i] + 0.02
+                ax1.text(i, y, "*", ha="center", va="bottom", fontsize=12)
 
     ax2.bar(x, mean_times, color=colors)
     ax2.set_xticks(x); ax2.set_xticklabels(OBS_MODES, rotation=15, ha="right")
