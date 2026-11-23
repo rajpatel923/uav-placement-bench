@@ -14,10 +14,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[0]))
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+
+from stats import paired_diff_ci, prob_of_improvement
 
 
 SHIFT_LABELS = ["train", "users-50", "users-150", "area-2000", "area-4000"]
@@ -34,6 +37,20 @@ def _load_mean(results_dir: Path, config: str, method: str, metric: str) -> floa
         if v is not None:
             vals.extend(v)
     return float(np.mean(vals)) if vals else float("nan")
+
+
+def _load_per_seed_means(results_dir: Path, config: str, method: str, metric: str) -> np.ndarray:
+    """Return one mean-coverage value per seed file (for paired significance tests)."""
+    folder = results_dir / config / method
+    seed_means = []
+    for f in sorted(folder.glob("seed*.json")):
+        d = json.loads(f.read_text())
+        v = d.get(f"{metric}_per_layout")
+        if v is not None and len(v) > 0:
+            seed_means.append(float(np.mean(v)))
+        elif f"{metric}" in d and not isinstance(d[metric], str):
+            seed_means.append(float(d[metric]))
+    return np.array(seed_means)
 
 
 def _load_timing(timing_dir: Path, obs_mode: str) -> dict:
@@ -74,10 +91,33 @@ def main():
     for obs_mode, color in zip(OBS_MODES, colors):
         vals = [_load_mean(rq3a, cfg, obs_mode, args.metric) for cfg in SHIFT_LABELS]
         ax_a.plot(range(len(SHIFT_LABELS)), vals, marker="o", label=obs_mode, color=color)
+
+        # Annotate each shifted config with P(shift > train) using paired_diff_ci / prob_of_improvement
+        train_scores = _load_per_seed_means(rq3a, "train", obs_mode, args.metric)
+        for xi, cfg_label in enumerate(SHIFT_LABELS):
+            if cfg_label == "train":
+                continue
+            shift_scores = _load_per_seed_means(rq3a, cfg_label, obs_mode, args.metric)
+            # Only annotate when both sides have paired observations
+            n = min(len(train_scores), len(shift_scores))
+            if n >= 2:
+                poi = prob_of_improvement(shift_scores[:n], train_scores[:n])
+                pt, lo, hi = paired_diff_ci(shift_scores[:n], train_scores[:n])
+                sig = "*" if lo > 0 or hi < 0 else ""
+                ax_a.annotate(
+                    f"{poi:.2f}{sig}",
+                    xy=(xi, vals[xi]),
+                    xytext=(2, 4),
+                    textcoords="offset points",
+                    fontsize=5,
+                    color=color,
+                    alpha=0.8,
+                )
+
     ax_a.set_xticks(range(len(SHIFT_LABELS)))
     ax_a.set_xticklabels(SHIFT_LABELS, rotation=20, ha="right", fontsize=8)
     ax_a.set_ylabel(args.metric)
-    ax_a.set_title("(a) RQ3-A: Distribution Shift")
+    ax_a.set_title("(a) RQ3-A: Distribution Shift\n(annotations: P(shift>train), *=sig.)")
     ax_a.legend(fontsize=7)
     ax_a.set_ylim(0, 1)
 

@@ -15,7 +15,7 @@ Usage (full, after sweeping all obs_modes in RQ1):
 import argparse
 import json
 import sys
-import time
+import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -58,13 +58,22 @@ def _load_model(model_dir: Path, obs_mode: str, seed: int):
     algo_classes = [PPO, SAC, A2C, DQN]
 
     # Layout 1: obs_mode-keyed (primary expectation for RQ3)
-    candidate_paths = [model_dir / obs_mode / "models" / f"seed{seed}.zip"]
+    obs_mode_path = model_dir / obs_mode / "models" / f"seed{seed}.zip"
+    candidate_paths = [obs_mode_path]
     # Layout 2: algo-keyed (train_rl.py saves here)
-    candidate_paths += [model_dir / algo / "models" / f"seed{seed}.zip" for algo in algo_names]
+    algo_paths = [model_dir / algo / "models" / f"seed{seed}.zip" for algo in algo_names]
+    candidate_paths += algo_paths
 
     for p in candidate_paths:
         if not p.exists():
             continue
+        if p != obs_mode_path:
+            warnings.warn(
+                f"obs-mode-keyed checkpoint not found at {obs_mode_path}; "
+                f"falling back to {p}. Verify this model matches obs_mode={obs_mode!r}.",
+                UserWarning,
+                stacklevel=2,
+            )
         for algo_cls in algo_classes:
             try:
                 return algo_cls.load(p)
