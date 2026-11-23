@@ -77,29 +77,28 @@ def test_failure_rate_nonzero():
 
 
 def test_failure_affects_coverage():
-    # Run with no failure
+    # Both envs see the same user layout (seed=42) and the same actions
+    # (from an external rng), so the only difference is the missing UAV.
     env_ok = make_env("static")
-    obs_ok, _ = env_ok.reset(seed=42)
-    rew_ok = 0.0
-    for _ in range(env_ok.unwrapped.cfg.episode_len):
-        _, r, term, trunc, _ = env_ok.step(env_ok.action_space.sample())
-        rew_ok += r
-        if term or trunc:
-            break
+    env_ok.reset(seed=42)
 
-    # Run with single_failure — seed so failure fires early
     env_fail = make_env("static", single_failure=True)
-    obs_fail, _ = env_fail.reset(seed=42)
-    # Force early failure by setting _failure_step to step 2
+    env_fail.reset(seed=42)
+    # Force early failure so nearly every step has fewer active UAVs
     env_fail.unwrapped._failure_step = 2
-    rew_fail = 0.0
-    for _ in range(env_fail.unwrapped.cfg.episode_len):
-        _, r, term, trunc, _ = env_fail.step(env_fail.action_space.sample())
-        rew_fail += r
-        if term or trunc:
-            break
 
-    # Coverage with failure should be <= coverage without failure
-    assert rew_fail <= rew_ok + 1e-6, (
-        f"Failure should not improve coverage: fail={rew_fail:.3f}, ok={rew_ok:.3f}"
+    rng = np.random.default_rng(99)
+    ep_len = env_ok.unwrapped.cfg.episode_len
+    cov_ok_sum = 0.0
+    cov_fail_sum = 0.0
+    for _ in range(ep_len):
+        action = rng.uniform(-1.0, 1.0, env_ok.action_space.shape).astype(np.float32)
+        _, _, term_ok, trunc_ok, info_ok = env_ok.step(action)
+        _, _, term_fail, trunc_fail, info_fail = env_fail.step(action)
+        cov_ok_sum += info_ok["coverage"]
+        cov_fail_sum += info_fail["coverage"]
+
+    # With fewer active UAVs (failure at step 2), mean coverage should be lower
+    assert cov_fail_sum <= cov_ok_sum + 1e-6, (
+        f"Failure should reduce coverage: fail={cov_fail_sum:.3f}, ok={cov_ok_sum:.3f}"
     )
