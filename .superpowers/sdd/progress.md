@@ -1,42 +1,48 @@
-# SDD Progress Ledger
+# SDD Progress Ledger — RQ1-RQ3 Extension
 
-Branch: feature/uav-benchmark-impl
-Merge base (branch start): 6f0f8f7fc09ac91f080bed507ff49c21abb2737b
-Plan: docs/superpowers/plans/2026-11-16-uav-benchmark-full-plan.md
+Branch: feature/rq1-rq3-extension
+Merge base (branch start): 01b214dd7707a5678dd766e69dbd95e5f0ee920a
+Plan: docs/superpowers/plans/2026-11-17-rq1-rq2-rq3-plan.md
 
 ## Task Status
 
-- Task 1: Channel Verification Script — COMPLETE (commits 6f0f8f7..3d4c100, review clean)
-- Task 2: Lyu Spiral Baseline — COMPLETE (commits 3d4c100..1626ec0, review clean)
-- Task 3: Experiment Protocol Freeze — HUMAN CHECKPOINT (skip; no code)
-- Task 4: Observation Design (obs_mode) — COMPLETE (commits 1626ec0..df96c1e, review clean)
-- Task 5: SINR / Co-Channel Interference — COMPLETE (commits df96c1e..2d914a7, review clean)
-- Task 6: Hyperparameter Tuning Infrastructure — COMPLETE (commits 2d914a7..c5ea95f, review clean after device fix)
-- Task 7: Full 10-Seed Sweep & Paper Figures — COMPLETE (commits c5ea95f..90a784c, review clean after 3 fixes)
-- Task 8: Regime III Disaster Shock — COMPLETE (commits 90a784c..3ebadbf, review clean)
-- Final whole-branch review — COMPLETE (fixes 3ebadbf..86ddd25, re-review: READY TO MERGE)
+- Task 1: Observation Builders (uavbench/obs.py + env.py) — COMPLETE (commits 01b214d..904a7a3, review clean)
+- Task 2: CNN Feature Extractor (uavbench/policies/cnn_policy.py) — PENDING
+- Task 3: GNN Feature Extractor (uavbench/policies/gnn_policy.py) — PENDING
+- Task 4: train_rl.py updates — PENDING
+- Task 5: Stronger Baselines (warm_start_pso + mpc) — PENDING
+- Task 6: Failure Model (single_failure EnvConfig + mechanic) — PENDING
+- Task 7: scripts/stats.py — Paired diff CI — PENDING
+- Task 8: sweep_rq2.py + plot_rq2.py — PENDING
+- Task 9: eval_generalization.py + plot_rq3.py — PENDING
+- Task 10: plot_rq1.py + docs + requirements.txt — PENDING
 
 ## Minor Findings Log
 (accumulated for final whole-branch review)
 
-Task 4:
-- env.py: KMeans imported inside `_obs()` on every step — move to top of file for cleanliness (no correctness risk)
-- env.py: cluster_summary KMeans uses fixed random_state=0, not seeded via self.np_random — intentional per spec, worth noting in paper
-- run_baselines.py: obs_mode not saved to result JSON for baselines (only train_rl.py saves it) — not required by spec
-
-Task 5:
-- DECISIONS.md: D-011→D-013 gap (D-012 is Task 3 human checkpoint, written by supervisor when freezing protocol — expected)
-- channel.py sinr_matrix: uses sum-max for interference (correct; negligible float cancellation at this scale)
-- sinr_coverage() callable even when use_sinr=False — intentional, docstring could clarify
-
-Task 7:
-- run_all.sh: plot_figures.py only called for final_cov metric; avg_cov figure not generated (likely intentional — single paper figure)
-- plot_figures.py: hi_errs[present.index(algo)] is O(n) in annotation loop; could use enumerate (cosmetic)
-- run_baselines.py: --obs-mode not saved in result JSON (pre-existing gap, not introduced here)
-
-Task 8:
-- env.py: stale module docstring still says "Regime III NOT implemented yet" — 1-line fix
-- env.py: _too_close_frac() uses all UAVs (including failed ones) in collision penalty — may be intentional (failed UAV still physically present), but undocumented
-- env.py: test_shock_user_migration_moves_users checks post-5-step state, not isolated shock effect — generous lower bound masks it; could be tighter
-- env.py: shock_active/n_active_uavs always present in non-shock regime info dicts (benign additive change)
-- env.py: zero-active-UAVs edge case (shock_n_uavs_fail >= n_uavs) would crash with ValueError from min() on empty array — safe with defaults (1 fail, 4 UAVs) but worth a guard
+Task 1 minors:
+- obs.py build_graph: edge_index dtype is float32; PyG will need .long() cast (downstream Task 3 concern)
+- obs.py build_graph: Python loops over users/UAVs in hot path — violates AGENTS.md "NumPy vectorized" convention; not a correctness issue at n_uavs=8/n_users=150 scale
+- env.py EnvConfig: user_speed docstring still says "m per step" — should say "m/s" after step_duration_s addition
+Task 2: complete (commits 904a7a3..6a84429, review clean — minor: padding=1 on convs not in spec but harmless, unused np import in test_policies.py)
+Task 3: in_progress
+Task 3: complete (commits 6a84429..241235e, review clean after fix — C1: flexible features_dim projection, M2: importorskip guard added)
+Task 4: in_progress
+Task 4: complete (commits 241235e..90086e0, review approved — I1: graph smoke incomplete/reporting gap; I2: timing_path mkdir hardening applied directly)
+Task 5: in_progress
+Task 5: complete (commits 90086e0..0f041d4, review approved — Important: MPC overshoots budget by calibration overhead (spec says "not strict"); Minor: run_baselines defaults fixed inline)
+Task 6: in_progress
+Task 6: complete (commits 0f041d4..e679b0e, 2nd review approved — fix added failure_rate Bernoulli wiring that was stored but unused; 8 tests, 68 passing)
+Task 7: in_progress
+Task 7: complete (commits e679b0e..b159591, fix: replaced scipy.stats.mannwhitneyu with pure numpy — constraint violation)
+Task 8: in_progress
+Task 8: complete (commits b159591..8648049, review approved — minor: unused json/time imports in sweep_rq2.py; checkpoint path omits obs_mode; test_failure_affects_coverage fix is valid)
+Task 9: in_progress
+Task 9: complete (commits 8648049..1339566, 2nd review approved — I1: stats imported+used in plot_rq3; I2: _load_model fallback warning added; M3: removed unused import)
+Task 10: in_progress
+Task 10: complete (commits 1339566..975cb6f, 2nd review approved — C1: added paired_diff_ci import+usage for significance stars)
+All 10 tasks complete. Ready for final whole-branch review.
+Final whole-branch review: complete (merge-base 01b214d, HEAD ef3a1c5)
+C1 (warm_start_pso wiring), I2 (DECISIONS.md), I3 (eval split default), I4 (comment), M1 (unused imports) — all fixed.
+Remaining open item: I1 (step_duration_s physical semantics) — requires supervisor sign-off, documented in STATUS.md.
+Branch ready for supervisor review before sweep.

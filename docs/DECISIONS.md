@@ -109,3 +109,73 @@ Decision: Added mobility="shock" to env. Two shock types: uav_failure and user_m
 Defaults to uav_failure at step 30. Failed UAVs are excluded from coverage computation.
 Consequences: Does not affect Regime I/II results (different mobility parameter). Must
 get supervisor approval and add to EXPERIMENT_PROTOCOL.md before running reported sweeps.
+
+## D-015: Five observation representations for RQ1
+Date: 2026-11-19 | Status: accepted | Decided by: student
+Context: D-008 identified the flat, unordered user list as a known weakness and left
+the choice of representation open for supervisor sign-off. RQ1 resolves D-008 by
+comparing five modes on the validation split under an equal tuning budget.
+Decision: Five obs_mode values — flat (D-008 baseline), sorted (users sorted by
+distance to nearest UAV), cluster_summary (K-means centroids + counts replacing raw
+user coords), spatial_grid (32×32 occupancy + UAV positions, fed through CNN), and
+graph (heterogeneous UAV↔user graph, fed through GNN). Each mode produces the same
+continuous action space; only the observation encoder changes.
+Alternatives: DeepSets / attention encoder (more expressive but heavier; deferred).
+Consequences: Five models must be trained and compared on val; the best carries forward
+to RQ2 and RQ3. The comparison is only valid if tuning budgets are equal (see D-006).
+Invalidates no existing results (obs_mode defaults to "flat").
+
+## D-016: max_fleet_size=8 and fixed-capacity graph tensors
+Date: 2026-11-19 | Status: accepted | Decided by: student
+Context: SB3 requires a fixed observation-space shape at policy creation time. GNN
+output must have a constant dimension regardless of the actual n_uavs used at runtime
+(needed for RQ3-B fleet-size generalization, where the same trained policy is evaluated
+on 4, 6, and 8 UAVs).
+Decision: EnvConfig.max_fleet_size=8 is the padding target for all graph tensors. UAV
+node features and the uav_active mask are padded to max_fleet_size. GNN output is
+(max_fleet_size × 64) flattened; inactive slots are zeroed out before the head.
+Alternatives: Dynamic shapes via PyG DataBatch (not SB3-compatible without a custom
+vectorized-env wrapper).
+Consequences: max_fleet_size must be >= n_uavs for every experimental configuration;
+changing it invalidates saved GNN model checkpoints.
+
+## D-017: step_duration_s=1.0 — UNRESOLVED
+Date: 2026-11-19 | Status: proposed (pending supervisor sign-off)
+Context: D-002 set v_max=60 m/step with a note "30 m/s × 2 s step". The new
+step_duration_s field makes this explicit and is used by the mobile-user kinematics
+(user_speed is now in m/s, multiplied by step_duration_s each step). The default
+was set to 1.0 s, which makes v_max = 60 m/step correspond to 60 m/s — inconsistent
+with the "30 m/s × 2 s" note.
+Decision (proposed): Use step_duration_s=1.0 and interpret user_speed in m/s. The
+UAV speed comment will be corrected once the supervisor confirms whether the intended
+physical step is 1 s or 2 s.
+Consequences: If the supervisor confirms 2 s steps, step_duration_s should be changed
+to 2.0 and user_speed values halved. This would invalidate mobile-regime results.
+Do NOT run reported mobile sweeps until this is resolved.
+
+## D-018: single_failure and failure_rate fields for RQ2
+Date: 2026-11-19 | Status: accepted | Decided by: student
+Context: RQ2 sweeps complexity across 6 configs (C1–C6) that combine user mobility
+with single UAV failures. A clean way to inject failure without changing the base env
+reward or observation was needed.
+Decision: Added two EnvConfig fields: single_failure (bool, default False) triggers
+exactly one random-step UAV failure per episode; failure_rate (float, default 0.0) is
+a per-step Bernoulli probability for independent multi-failure experiments. The RQ2
+sweep uses only single_failure; failure_rate is wired but not used in the default
+sweep configs (C4–C6 set single_failure=True, failure_rate remains 0.0).
+Alternatives: Shock regime (D-014) — deferred; too coupled to Regime III stretch goal.
+Consequences: Enabling failure_rate > 0 in results runs requires a separate sweep
+entry and supervisor approval (changes the objective distribution). single_failure
+does not affect Regime I/II/III results when False.
+
+## D-019: torch_geometric>=2.5 added as soft dependency
+Date: 2026-11-19 | Status: accepted | Decided by: student
+Context: GNN feature extractor (obs_mode="graph") requires PyTorch Geometric for
+heterogeneous graph convolution. Not all experiment configurations need it.
+Decision: torch_geometric>=2.5 is listed as an optional/soft dependency. It is
+imported lazily inside gnn_policy.py and tests guard with pytest.importorskip. The
+core env, all baselines, and non-graph RL modes work without it.
+Alternatives: Implement GCN from scratch with sparse torch operations (rejected —
+maintenance burden outweighs the dependency savings for a research codebase).
+Consequences: Machines running graph-mode experiments must install torch_geometric
+separately (see README). CI runs that skip the package will skip GNN tests (expected).

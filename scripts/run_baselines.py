@@ -19,7 +19,7 @@ from uavbench.evaluation import DEFAULT_OUT, layout_seeds, run_episode, save_res
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--regime", choices=["static", "mobile", "shock"], default="static")
-    p.add_argument("--algos", nargs="+", default=["kmeans", "pso", "random", "lyu_spiral", "hover"])
+    p.add_argument("--algos", nargs="+", default=["kmeans", "pso", "warm_start_pso", "mpc", "random", "lyu_spiral", "hover"])
     p.add_argument("--seeds", nargs="+", type=int, default=list(range(10)))
     p.add_argument("--n-eval", type=int, default=20, help="number of evaluation layouts")
     p.add_argument("--replan-every", type=int, default=None,

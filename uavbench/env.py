@@ -44,7 +44,11 @@ class EnvConfig:
     # reward shaping
     min_sep: float = 20.0          # UAV-UAV safety distance (m)
     collision_penalty: float = 0.1
-    obs_mode: str = "flat"  # "flat" | "sorted" | "cluster_summary"
+    obs_mode: str = "flat"  # "flat" | "sorted" | "cluster_summary" | "spatial_grid" | "graph"
+    # Graph / GNN obs support
+    graph_edge_radius: float = 1500.0  # UAV↔user edge threshold (m)
+    max_fleet_size:    int   = 8       # padding target; must be >= n_uavs
+    step_duration_s:   float = 1.0     # seconds per env step (user_speed is in m/s)
     # SINR / interference (disabled by default; enabling changes the objective)
     use_sinr: bool = False       # if True, adds sinr_cov to info dict
     tx_power_dbm: float = 30.0  # UAV transmit power (dBm)
@@ -55,6 +59,9 @@ class EnvConfig:
     shock_type: str = "uav_failure"    # "uav_failure" | "user_migration"
     shock_n_uavs_fail: int = 1         # number of UAVs that fail (uav_failure type)
     shock_migration_frac: float = 0.5  # fraction of users that relocate (user_migration type)
+    # RQ2 failure model
+    single_failure: bool  = False  # one random-step failure per episode
+    failure_rate:   float = 0.0    # Bernoulli per-step UAV failure rate; enabled but not used in default RQ2 sweep configs
 
     def to_dict(self):
         return asdict(self)
@@ -78,16 +85,12 @@ class UAVPlacementEnv(gym.Env):
         self.channel = AlHouraniChannel(cfg.environment, cfg.freq_hz)
         U, K = cfg.n_uavs, cfg.n_users
         self.action_space = spaces.Box(-1.0, 1.0, shape=(U * 3,), dtype=np.float32)
-        # Observation space depends on obs_mode
-        if cfg.obs_mode == "flat":
-            obs_dim = U * 3 + K * 2
-        elif cfg.obs_mode == "sorted":
-            obs_dim = U * 3 + K * 2
-        elif cfg.obs_mode == "cluster_summary":
-            obs_dim = U * 3 + cfg.n_clusters * 3
-        else:
-            raise ValueError(f"Unknown obs_mode: {cfg.obs_mode!r}. Choose 'flat', 'sorted', or 'cluster_summary'.")
-        self.observation_space = spaces.Box(0.0, 1.0, shape=(obs_dim,), dtype=np.float32)
+        from .obs import make_obs_space
+        if cfg.max_fleet_size < cfg.n_uavs:
+            raise ValueError(
+                f"max_fleet_size ({cfg.max_fleet_size}) must be >= n_uavs ({cfg.n_uavs})"
+            )
+        self.observation_space = make_obs_space(cfg)
         self._step_scale = np.array([cfg.v_max, cfg.v_max, cfg.vz_max], dtype=float)
         self.uavs = np.zeros((U, 3))
         self.users = np.zeros((K, 2))
@@ -95,6 +98,8 @@ class UAVPlacementEnv(gym.Env):
         self.t = 0
         self._failed_mask = np.ones(cfg.n_uavs, dtype=bool)
         self.n_active_uavs: int = cfg.n_uavs
+        self._failure_step: int = -1
+        self._single_failure_done: bool = False
 
     # ---------------------------------------------------------------- helpers
     def _sample_users(self) -> np.ndarray:
@@ -108,33 +113,24 @@ class UAVPlacementEnv(gym.Env):
         uniform = rng.uniform(0.0, c.area, size=(n_uniform, 2))
         return np.clip(np.vstack([clustered, uniform]), 0.0, c.area)
 
-    def _obs(self) -> np.ndarray:
+    def _obs(self):
+        from .obs import (build_flat, build_sorted, build_cluster_summary,
+                          build_spatial_grid, build_graph)
         c = self.cfg
         u = self.uavs.copy()
         u[:, :2] /= c.area
-        u[:, 2] = (u[:, 2] - c.h_min) / (c.h_max - c.h_min)
-        uav_part = u.ravel()
-
+        u[:, 2] = (u[:, 2] - c.h_min) / max(c.h_max - c.h_min, 1e-6)
         if c.obs_mode == "flat":
-            user_part = (self.users / c.area).ravel()
-        elif c.obs_mode == "sorted":
-            centroid = np.full(2, c.area / 2.0)
-            order = np.argsort(np.linalg.norm(self.users - centroid, axis=1))
-            user_part = (self.users[order] / c.area).ravel()
-        elif c.obs_mode == "cluster_summary":
-            from sklearn.cluster import KMeans
-            km = KMeans(n_clusters=c.n_clusters, n_init=1, random_state=0)
-            labels = km.fit_predict(self.users)
-            counts = np.bincount(labels, minlength=c.n_clusters)
-            summary = np.column_stack([
-                km.cluster_centers_ / c.area,
-                counts.astype(float) / c.n_users,
-            ])  # shape: (n_clusters, 3)
-            user_part = summary.ravel()
-        else:
-            raise ValueError(f"Unknown obs_mode: {c.obs_mode!r}")
-
-        return np.concatenate([uav_part, user_part]).astype(np.float32)
+            return build_flat(u, self.users, c)
+        if c.obs_mode == "sorted":
+            return build_sorted(u, self.users, c)
+        if c.obs_mode == "cluster_summary":
+            return build_cluster_summary(u, self.users, c)
+        if c.obs_mode == "spatial_grid":
+            return build_spatial_grid(self.uavs, self.users, c)
+        if c.obs_mode == "graph":
+            return build_graph(self.uavs, self.users, c, self._failed_mask)
+        raise ValueError(f"Unknown obs_mode: {c.obs_mode!r}")
 
     def coverage(self, uavs: np.ndarray | None = None, users: np.ndarray | None = None) -> float:
         """Fraction of users whose best-UAV path loss is <= pl_max."""
@@ -164,10 +160,11 @@ class UAVPlacementEnv(gym.Env):
 
     def _move_users(self):
         c, rng = self.cfg, self.np_random
+        step_m = c.user_speed * c.step_duration_s      # m/s × s = m/step
         delta = self.waypoints - self.users
         dist = np.linalg.norm(delta, axis=1, keepdims=True)
-        arrived = dist[:, 0] <= c.user_speed
-        step = np.where(dist > 0, delta / np.maximum(dist, 1e-9), 0.0) * np.minimum(dist, c.user_speed)
+        arrived = dist[:, 0] <= step_m
+        step = np.where(dist > 0, delta / np.maximum(dist, 1e-9), 0.0) * np.minimum(dist, step_m)
         self.users = self.users + step
         if arrived.any():
             self.waypoints[arrived] = rng.uniform(0.0, c.area, size=(int(arrived.sum()), 2))
@@ -203,6 +200,17 @@ class UAVPlacementEnv(gym.Env):
         self.t = 0
         self._failed_mask = np.ones(c.n_uavs, dtype=bool)
         self.n_active_uavs = c.n_uavs
+        self._single_failure_done = False
+        if c.single_failure:
+            lo = c.episode_len // 3
+            hi = 2 * c.episode_len // 3
+            # _failure_step is compared against self.t (1-indexed after step increment).
+            # The test measures 0-indexed loop variable t, which equals self.t - 1 at
+            # the moment of detection, so draw from [lo+1, hi+1] to place the visible
+            # failure at t in [lo, hi].
+            self._failure_step = int(self.np_random.integers(lo + 1, hi + 2))
+        else:
+            self._failure_step = -1
         cov = self.coverage()
         info = {"coverage": cov}
         if c.use_sinr:
@@ -216,13 +224,27 @@ class UAVPlacementEnv(gym.Env):
         self.uavs[:, :2] = np.clip(self.uavs[:, :2], 0.0, c.area)
         self.uavs[:, 2] = np.clip(self.uavs[:, 2], c.h_min, c.h_max)
         self.t += 1
+        # single_failure: one UAV fails at a randomly drawn step each episode
+        if c.single_failure and not self._single_failure_done and self.t == self._failure_step:
+            active = np.where(self._failed_mask)[0]
+            if len(active) > 0:
+                self._failed_mask[self.np_random.choice(active)] = False
+                self.n_active_uavs -= 1
+            self._single_failure_done = True
+        # failure_rate: Bernoulli per-step failure (up to n_uavs failures total)
+        if c.failure_rate > 0.0:
+            active = np.where(self._failed_mask)[0]
+            if len(active) > 0 and self.np_random.random() < c.failure_rate:
+                self._failed_mask[self.np_random.choice(active)] = False
+                self.n_active_uavs -= 1
         shock_active = False
         if c.mobility == "shock" and self.t == c.shock_step:
             self._apply_shock()
             shock_active = True
         if c.mobility in ("mobile", "shock"):
             self._move_users()
-        active_uavs = self.uavs[self._failed_mask] if c.mobility == "shock" else self.uavs
+        any_fail = (c.mobility == "shock") or (c.single_failure and self._single_failure_done) or (c.failure_rate > 0.0 and self.n_active_uavs < c.n_uavs)
+        active_uavs = self.uavs[self._failed_mask] if any_fail else self.uavs
         cov = self.coverage(active_uavs)
         # Proximity penalty uses all UAVs (including failed ones) — failed UAVs are
         # still physically present. For shock experiments, this biases the reward slightly.

@@ -10,6 +10,8 @@ h = R_c * tan(theta_opt), where theta_opt solves Eq. (13). We clip to [h_min, h_
 """
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from sklearn.cluster import KMeans
@@ -73,6 +75,65 @@ def pso_planner(
     return g.reshape(c.n_uavs, 3)
 
 
+def warm_start_pso_planner(
+    env: UAVPlacementEnv,
+    rng: np.random.Generator,
+    prev_solution: np.ndarray | None = None,
+    n_particles: int = 30,
+    iters: int = 60,
+    w: float = 0.7,
+    c1: float = 1.5,
+    c2: float = 1.5,
+) -> np.ndarray:
+    """PSO warm-started from a prior solution.
+
+    One particle is seeded with prev_solution (flattened); the rest are random.
+    Same computational budget as cold-start PSO.
+    """
+    c = env.cfg
+    lo = np.tile([0.0, 0.0, c.h_min], c.n_uavs)
+    hi = np.tile([c.area, c.area, c.h_max], c.n_uavs)
+    dim = lo.size
+    x = rng.uniform(lo, hi, size=(n_particles, dim))
+    if prev_solution is not None:
+        x[0] = np.clip(prev_solution.ravel(), lo, hi)
+    v = rng.normal(0.0, 0.1, size=(n_particles, dim)) * (hi - lo)
+    score = lambda p: _soft_coverage(env, p.reshape(c.n_uavs, 3))
+    pbest = x.copy()
+    pbest_f = np.array([score(p) for p in x])
+    g = pbest[np.argmax(pbest_f)].copy()
+    for _ in range(iters):
+        r1, r2 = rng.random((2, n_particles, dim))
+        v = w * v + c1 * r1 * (pbest - x) + c2 * r2 * (g - x)
+        x = np.clip(x + v, lo, hi)
+        f = np.array([score(p) for p in x])
+        better = f > pbest_f
+        pbest[better], pbest_f[better] = x[better], f[better]
+        g = pbest[np.argmax(pbest_f)].copy()
+    return g.reshape(c.n_uavs, 3)
+
+
+def mpc_planner(
+    env: UAVPlacementEnv,
+    rng: np.random.Generator,
+    horizon: int = 5,
+    budget_ms: float = 50.0,
+    pso_particles: int = 10,
+) -> np.ndarray:
+    """Receding-horizon MPC: time-budgeted PSO re-plan.
+
+    Runs PSO with pso_particles scaled to fit within budget_ms wall-clock.
+    Calibrates iters on a trial call; returns targets for use with TargetTrackingPolicy.
+    """
+    import time
+    c = env.cfg
+    t0 = time.perf_counter()
+    pso_planner(env, rng, n_particles=pso_particles, iters=horizon)
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    iters = max(horizon, int(horizon * budget_ms / max(elapsed_ms, 0.1)))
+    return pso_planner(env, rng, n_particles=pso_particles, iters=iters)
+
+
 def random_planner(env: UAVPlacementEnv, rng: np.random.Generator):
     c = env.cfg
     return np.column_stack(
@@ -110,10 +171,12 @@ def lyu_spiral_planner(env: UAVPlacementEnv, rng: np.random.Generator):
 
 
 PLANNERS = {
-    "kmeans": kmeans_planner,
-    "pso": pso_planner,
-    "random": random_planner,
-    "lyu_spiral": lyu_spiral_planner,
+    "kmeans":           kmeans_planner,
+    "pso":              pso_planner,
+    "warm_start_pso":   warm_start_pso_planner,
+    "mpc":              mpc_planner,
+    "random":           random_planner,
+    "lyu_spiral":       lyu_spiral_planner,
 }
 
 
@@ -131,13 +194,19 @@ class TargetTrackingPolicy:
         self.replan_every = replan_every
         self.targets = None
         self._t = 0
+        self._last_plan: np.ndarray | None = None
+        self._has_prev_solution = "prev_solution" in inspect.signature(self.planner).parameters
 
     def reset(self, env: UAVPlacementEnv):
         self._t = 0
         self._plan(env)
 
     def _plan(self, env: UAVPlacementEnv):
-        targets = self.planner(env, self.rng)
+        if self._has_prev_solution:
+            targets = self.planner(env, self.rng, prev_solution=self._last_plan)
+        else:
+            targets = self.planner(env, self.rng)
+        self._last_plan = targets
         cost = np.linalg.norm(env.uavs[:, None, :] - targets[None, :, :], axis=-1)
         rows, cols = linear_sum_assignment(cost)
         self.targets = targets[cols[np.argsort(rows)]]

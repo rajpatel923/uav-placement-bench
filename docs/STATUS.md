@@ -2,7 +2,7 @@
 
 Agents: read this first, update it last. Keep it short; move history into the session log.
 
-Last updated: 2026-11-16 (branch complete — ready to merge)
+Last updated: 2026-11-23 (RQ1–RQ3 extension complete — 73 tests pass; ready for supervisor review before sweep)
 
 ## Current state
 
@@ -60,3 +60,23 @@ task-by-task plan with code, test commands, and commit steps.
 | 2026-11-16 | Claude | Added validation split (`--split val`), AGENTS.md, CLAUDE.md, docs/ | Verify constants; observation decision |
 | 2026-11-16 | Claude (Task 8) | Added Regime III disaster shock: `mobility="shock"`, `_apply_shock()`, shock fields to `EnvConfig`, 3 new tests (37 pass); smoke test passed | Supervisor approval before reported sweeps; whole-branch review |
 | 2026-11-16 | Claude | Full repo analysis; wrote complete implementation plan at docs/superpowers/plans/2026-11-16-uav-benchmark-full-plan.md (Tasks 1–8) | Execute plan starting at Task 1 |
+| 2026-11-23 | Claude (Task 9) | Added `scripts/eval_generalization.py` (RQ3-A distribution shift + RQ3-B GNN fleet-size), `scripts/plot_rq3.py` (3-panel figure), `tests/test_generalization.py` (3 tests). `_load_model` tries obs-mode and algo-keyed paths. 71 tests pass. Smoke runs verified. | Run full 10-seed sweep after RQ1 obs-mode training completes; then `eval_generalization.py --rq3b` for RQ3-B |
+| 2026-11-23 | Claude (Task 10) | Added `scripts/plot_rq1.py` (IQM bar chart + training wall-clock panel), appended RQ1–RQ3 extension section to `docs/RESEARCH_CONTEXT.md`, added `torch_geometric>=2.5` to `requirements.txt`. 71 tests pass. | See session log below |
+| 2026-11-23 | Claude (final fixes) | Fixed warm_start_pso wiring in TargetTrackingPolicy (C1 — was silent cold PSO), DECISIONS.md entries D-015–D-019 added (I2), eval_generalization default split changed to val (I3), failure_rate comment corrected (I4), unused imports removed (M1). 73 tests pass. | Supervisor sign-off on step_duration_s before sweep |
+
+## Session 2026-11-17 — RQ1–RQ3 implementation plan written
+
+Plan: `docs/superpowers/plans/2026-11-17-rq1-rq2-rq3-plan.md`
+Spec: `docs/superpowers/specs/2026-11-17-rq1-rq2-rq3-design.md`
+
+**Next steps:**
+1. Execute Tasks 1–6 (env + policy changes) with `superpowers:subagent-driven-development`
+2. Install `torch_geometric>=2.5` in the experiment conda environment
+3. Run RQ1 smoke sweep: all 5 obs_modes × PPO × seeds 0,1 → `/tmp/rq1_smoke`
+4. Review RQ1 results to identify best obs_mode before running RQ2 sweep
+5. Confirm experiment protocol with Dr. Sookhak before full 10-seed sweep
+6. All full sweeps to `results_rq1/`, `results_rq2/`, `results_rq3/` (never overwrite `results/`)
+
+**Open questions:**
+- Confirm step_duration_s=1.0 is the correct physical interpretation with supervisor
+- Verify graph_edge_radius=1500m against coverage radius at h_opt for urban params
