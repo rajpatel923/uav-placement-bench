@@ -107,3 +107,50 @@ Each hypothesis can be confirmed or rejected. Report both outcomes honestly.
 4. Journal extension later: IEEE Open Journal of the Communications Society.
 
 Final venue choice is the supervisor's call. Record it in `docs/DECISIONS.md`.
+
+## RQ1–RQ3 Extension (added 2026-11-17)
+
+### Research Questions
+
+**RQ1 — Representation Sensitivity**
+How do coordinate-based, spatial-grid, and graph-based observation representations
+affect DRL performance, convergence, and generalization?
+
+**H4:** Graph-based representations improve RL over coordinate-based in dynamic regimes.
+*(Not assumed: GNN may not win in the static regime.)*
+
+**RQ2 — Dynamic Complexity Threshold**
+At what levels of user mobility and UAV failure frequency does DRL outperform online
+re-optimization?
+
+**H5:** RL begins to match PSO somewhere between 5 m/s and 15 m/s user mobility combined
+with UAV failures. The crossover is an empirical finding, not a guaranteed outcome.
+
+**RQ3 — Generalization and Deployment Cost**
+- **RQ3-A (distribution shift):** Do policies trained on 100 users / 3000m area generalise
+  zero-shot to 50/150 users and 2000/4000m areas?
+- **RQ3-B (structural shift, GNN only):** Does a UAV-node-wise GNN trained on 4 UAVs execute
+  successfully on 6 and 8 UAVs without retraining?
+
+**H6-A:** MLP/CNN degrade significantly under distribution shift; GNN is more robust.
+**H6-B:** Only the UAV-node-wise GNN supports structural shift; MLP/CNN cannot change their
+action space at inference time.
+
+### New Baselines
+- **warm_start_pso:** PSO seeded with the prior episode's best solution.
+- **mpc:** Time-budgeted receding-horizon re-plan (PSO horizon, same wall-clock per step as RL).
+
+### Statistical Protocol
+Primary significance test: **paired difference CI** on `final_cov`.
+`point, lo, hi = paired_diff_ci(rl_scores, pso_scores)`
+Significance: CI excludes zero. P(improvement) via Mann–Whitney U.
+Single-metric CI overlap is NOT used as a significance criterion.
+
+### Three Acceptable Outcomes
+| Outcome | Interpretation |
+|---------|---------------|
+| A: GNN substantially improves | Relational obs effective for coordinated UAV deployment |
+| B: DRL matches PSO only under high mobility+failure | Use RL when re-planning latency is the bottleneck |
+| C: Strong online optimiser matches DRL | Establishes where learning fails; motivates future equivariant architectures |
+
+No predetermined outcome is assumed or preferred.
