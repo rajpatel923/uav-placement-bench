@@ -65,11 +65,11 @@ def prob_of_improvement(
     Follows Agarwal et al. 2021 Section 3: U_a / (n_a * n_b).
     Compatible with 1-D score arrays (n_seeds,).
     """
-    from scipy.stats import mannwhitneyu
     a = np.asarray(scores_a, dtype=float).ravel()
     b = np.asarray(scores_b, dtype=float).ravel()
-    U, _ = mannwhitneyu(a, b, alternative="greater")
-    return float(U / (len(a) * len(b)))
+    # Count concordant pairs + half ties (Agarwal et al. 2021 Section 3)
+    U = float(np.sum(a[:, None] > b[None, :]) + 0.5 * np.sum(a[:, None] == b[None, :]))
+    return U / (len(a) * len(b))
 
 
 if __name__ == "__main__":
